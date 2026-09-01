@@ -67,7 +67,7 @@
           "label": "Бизнес-метрика",
           "config": {
             "value": {
-              "data": "$.metric_selector_res.metric_name"
+              "data": "$.metric_spec.metric_name"
             }
           }
         },
@@ -76,7 +76,7 @@
           "label": "Колонка расчёта",
           "config": {
             "value": {
-              "data": "$.metric_selector_res.score_column"
+              "data": "$.metric_spec.score_column"
             }
           }
         },
@@ -85,7 +85,7 @@
           "label": "Стратегия расчёта",
           "config": {
             "value": {
-              "data": "$.metric_selector_res.strategy"
+              "data": "$.metric_spec.strategy"
             }
           }
         },
@@ -94,7 +94,7 @@
           "label": "Статус контракта",
           "config": {
             "value": {
-              "data": "$.metric_selector_res.status"
+              "data": "$.metric_spec.status"
             }
           }
         }
@@ -113,8 +113,8 @@
       "order": 1
     },
     {
-      "name": "docx_intstruction",
-      "label": "Инструкция по разметке",
+      "name": "assessor_instruction",
+      "label": "Assessor instruction",
       "in": true,
       "type": "default",
       "shape": "shape_model",
@@ -175,13 +175,13 @@
       "order": 7
     },
     {
-      "name": "metric_selector_res",
+      "name": "metric_spec",
       "label": "MetricSpec ключевой метрики",
       "in": false,
       "type": "default",
       "shape": "shape_model",
       "description": "MetricSpec v2: семантика, source_columns/row_aggregation, score/weight, validation_evidence, provenance и явный status; без chain-of-thought",
-      "order": 7
+      "order": 8
     },
     {
       "name": "metric_dataset",
@@ -190,7 +190,16 @@
       "type": "dataframe",
       "shape": "shape_dataframe",
       "description": "Исходная канонизированная корзина; для вычисляемой КМ дополнена проверенной колонкой laim_key_metric",
-      "order": 8
+      "order": 9
+    },
+    {
+      "name": "validated_monitoring_metric",
+      "label": "Monitoring metric (validated)",
+      "in": false,
+      "type": "default",
+      "shape": "shape_model",
+      "description": "Контракт laim-monitoring-metric.v2, прошедший проверку принадлежности агенту (basket_id vs run_context); пуст, если контракт не подавался",
+      "order": 10
     }
   ],
   "script": {
@@ -198,8 +207,12 @@
     "baseImageKey": "py312-simple",
     "deployType": "docker",
     "runConfiguration": {
+      "libraryDependencies": [
+        "requirements.txt"
+      ],
       "sourceFiles": [
-        "main.py"
+        "main.py",
+        "config.py"
       ],
       "functionName": "main",
       "functionParameters": [],

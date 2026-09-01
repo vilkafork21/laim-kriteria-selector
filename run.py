@@ -17,7 +17,7 @@ input_df = pd.read_csv(
 docx_instruction_path = "./instruction/"
 res = main(
     df=input_df,
-    docx_intstruction=docx_instruction_path,
+    assessor_instruction=docx_instruction_path,
     doc_browser_result={"bp_card": "Основная метрика target"},
     model_id="giga",
 )

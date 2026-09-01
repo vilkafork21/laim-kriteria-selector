@@ -1022,6 +1022,7 @@ _NON_METRIC_COLS = {
     "reference_answer", "scenario", "session_id", "history", "dialogue", "id",
     "trace_id", "span_id", "route", "starttime", "endtime", "start_time",
     "end_time", "distributive", "agent_id", "model_version_id",
+    "input_query_count", "turn_index", "assessment_unit_id", "solution_version",
 }
 
 
@@ -2130,9 +2131,72 @@ def _finalize_metric_selection(
         result["strategy"], result["resolution_source"], llm_called, model_id,
     )
     return {
-        "metric_selector_res": result,
+        "metric_spec": result,
         "metric_dataset": metric_dataset,
     }
+
+
+def _load_monitoring_contract(value) -> dict | None:
+    """Восстановить monitoring_metric из транспорта SberDS.
+
+    Порт ``default`` может вернуть готовый dict, JSON/pickle bytes либо путь
+    без расширения на скачанный файл. Подключённый, но нераспознанный контракт
+    не должен незаметно отправлять selector в legacy LLM-ветку.
+    """
+    if value is None:
+        return None
+    current = value
+    for _ in range(_ARTIFACT_MAX_UNWRAP_DEPTH):
+        if isinstance(current, dict):
+            if isinstance(current.get("scoring"), dict):
+                return current
+            nested = next(
+                (
+                    current[key]
+                    for key in (
+                        "monitoring_metric", "result", "payload", "data", "value"
+                    )
+                    if key in current and current[key] is not current
+                ),
+                None,
+            )
+            if nested is None:
+                break
+            current = nested
+            continue
+        if isinstance(current, (bytes, bytearray)):
+            raw = bytes(current)
+            try:
+                current = json.loads(raw.decode("utf-8-sig"))
+                continue
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                try:
+                    current = pickle.loads(raw)
+                    continue
+                except Exception:
+                    break
+        if isinstance(current, (str, Path)):
+            text = str(current).strip()
+            if text.startswith("{"):
+                try:
+                    current = json.loads(text)
+                    continue
+                except json.JSONDecodeError:
+                    break
+            path = Path(text)
+            if path.is_dir():
+                files = sorted(item for item in path.iterdir() if item.is_file())
+                if len(files) != 1:
+                    break
+                path = files[0]
+            if path.is_file():
+                current = path.read_bytes()
+                continue
+        break
+    raise ValueError(
+        "monitoring_metric подключён, но контракт laim-monitoring-metric.v2 "
+        "не прочитан; ожидается dict, JSON/pickle bytes или локальный файл"
+    )
 
 
 def _selector_from_monitoring_contract(metric, df) -> dict | None:
@@ -2158,15 +2222,19 @@ def _selector_from_monitoring_contract(metric, df) -> dict | None:
     baseline = metric.get("baseline") or {}
 
     def _spec(main, others, source_path, reason=None):
+        all_columns = list(dict.fromkeys(
+            name for name in [main, *others] if name
+        ))
+        aggregate_sources = method in {"majority", "mean_criteria", "all_criteria"}
         spec = {
             "status": "resolved",
             "main_metric": main,
             "other_metrics": [name for name in others if name != main],
             "metric_name": metric.get("name"),
             "score_column": main,
-            "source_columns": [main],
+            "source_columns": all_columns if aggregate_sources else [main],
             "marker_columns": [name for name in others if name != main],
-            "row_aggregation": "identity",
+            "row_aggregation": "majority_vote" if method == "majority" else "identity",
             "strategy": "monitoring_metric_passthrough",
             "scoring_method": method,
             "assessment_mode": metric.get("assessment_mode"),
@@ -2201,9 +2269,21 @@ def _selector_from_monitoring_contract(metric, df) -> dict | None:
     return _spec(main, columns, "monitoring_metric")
 
 
-def main(
+def _validate_monitoring_contract_identity(metric: dict, run_context) -> None:
+    """Не допустить контракт соседнего агента в текущий запуск."""
+    expected = _expected_run_identity(run_context)
+    expected_agent = expected.get("agent_ci")
+    actual_agent = str(metric.get("basket_id") or "").strip().upper()
+    if expected_agent and actual_agent and actual_agent != expected_agent:
+        raise ValueError(
+            "monitoring_metric принадлежит другому агенту: "
+            f"basket_id={actual_agent!r}, run_context.agent_ci={expected_agent!r}"
+        )
+
+
+def _main(
     df: pd.DataFrame,
-    docx_intstruction: Path | None = None,
+    assessor_instruction: Path | None = None,
     doc_browser_result: Path | None = None,
     monitoring_metric: dict | None = None,
     model_id: str = "minimax-m2.5",
@@ -2227,7 +2307,7 @@ def main(
     ----------
     df : pandas.DataFrame
         Эталонная корзина (после коннектора эталона).
-    docx_intstruction : путь | bytes | dict | None
+    assessor_instruction : путь | bytes | dict | None
         Инструкция по разметке.
     doc_browser_result : dict | None
         Карточка отчёта о разработке (ключ bp_card); опциональна.
@@ -2256,20 +2336,32 @@ def main(
     model_version_id : int | str
         ID версии из Common Settings; добавляется к ожидаемой identity отчёта.
     """
-    if monitoring_metric is not None and not main_metric:
-        passthrough = _selector_from_monitoring_contract(monitoring_metric, df)
+    validated_contract = None
+    if monitoring_metric is not None:
+        # wiring v3: селектор — единственный источник контракта для потребителей,
+        # поэтому прошедший identity-гейт контракт публикуется на любом пути.
+        validated_contract = _load_monitoring_contract(monitoring_metric)
+        _validate_monitoring_contract_identity(validated_contract, run_context)
+    if validated_contract is not None and not main_metric:
+        monitoring_contract = validated_contract
+        df = _load_df(df)
+        passthrough = _selector_from_monitoring_contract(monitoring_contract, df)
         if passthrough is not None:
             logging.info(
                 "kriteria-selector: метрика взята из monitoring_metric "
                 "(main=%r, source=%s), LLM и артефакты не используются",
                 passthrough["main_metric"], passthrough["resolution_source"],
             )
-            return {"metric_selector_res": passthrough, "metric_dataset": df}
+            return {
+                "metric_spec": passthrough,
+                "metric_dataset": df,
+                "validated_monitoring_metric": monitoring_contract,
+            }
 
     df = _load_df(df)
     metric_df = _metric_rows(df)
-    if docx_intstruction is not None:
-        instruction_text = _load_instruction(docx_intstruction)
+    if assessor_instruction is not None:
+        instruction_text = _load_instruction(assessor_instruction)
         docx_file = instruction_text
         if len(docx_file) > INSTRUCTION_MAX_CHARS:
             logging.warning(
@@ -2330,7 +2422,7 @@ def main(
             },
         })
         logging.error("kriteria-selector: %s", json_output["reason"])
-        return {"metric_selector_res": json_output, "metric_dataset": df}
+        return {"metric_spec": json_output, "metric_dataset": df}
 
     # Явная настройка имеет контрактный приоритет и уже проверяется против
     # реальной схемы корзины. Внешний LLM в этой ветке не добавляет информации,
@@ -2411,7 +2503,7 @@ def main(
             "configured_model_id": model_id,
             "selection_path": "no_metric_candidates",
         }
-        return {"metric_selector_res": json_output, "metric_dataset": df}
+        return {"metric_spec": json_output, "metric_dataset": df}
     validation_prompt = json.dumps({
         "observations": validation_evidence.get("observations", []),
         "majority_vote_cue": validation_evidence.get("majority_vote_cue", False),
@@ -2565,3 +2657,19 @@ def main(
         model_id=model_id,
         llm_called=True,
     )
+
+
+def main(*args, **kwargs):
+    """Обёртка контура: доложить validated_monitoring_metric на любом пути.
+
+    Контракт публикуется, только если он был подан и прошёл identity-гейт
+    (иначе _main поднял ValueError до этой точки).
+    """
+    monitoring_metric = kwargs.get("monitoring_metric")
+    run_context = kwargs.get("run_context")
+    result = _main(*args, **kwargs)
+    if monitoring_metric is not None and "validated_monitoring_metric" not in result:
+        contract = _load_monitoring_contract(monitoring_metric)
+        _validate_monitoring_contract_identity(contract, run_context)
+        result["validated_monitoring_metric"] = contract
+    return result
