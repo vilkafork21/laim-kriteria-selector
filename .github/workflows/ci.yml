@@ -1,0 +1,22 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Зависимости ноды и инструменты проверки
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest "ruff==0.15.5"
+      - name: Линт
+        run: ruff check .
+      - name: Тесты ноды (включая контракт sourceFiles descriptor.json)
+        run: python -m pytest -q
