@@ -1,0 +1,9 @@
+pandas
+pyarrow
+numpy
+langchain
+langchain-gigachat
+langchain-core
+langchain-community
+python-docx
+requests

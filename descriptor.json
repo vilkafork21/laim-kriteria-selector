@@ -1,0 +1,213 @@
+{
+  "id": "288c0851-7d78-4e2e-bf83-c3156339d34b",
+  "name": "LAIM kriteria selector",
+  "description": "Выбор критериев разметки; при подключённом monitoring_metric — passthrough плана",
+  "fullDescription": "Единственная точка семантического выбора ключевой метрики. Сопоставляет полный отчёт о валидации, отчёт о разработке и инструкцию с фактическими колонками эталонной корзины. Значение и формула из validation report принимаются только после детерминированного пересчёта по корзине. Поддерживает raw bytes, локальный путь и parquet-транспорт DataArtifact, готовую score-колонку и строгий majority vote; найденная формула материализуется в metric_dataset, который должны получать baseline, assessor и диагностические тесты. Возвращает MetricSpec v2 с source_columns, row_aggregation, score/weight, опубликованным значением, SHA-256 и машинным статусом сверки. LLM остаётся провайдер-независимым fallback, а все его имена и формулы проверяются по реальному DataFrame. Технически непрочитанный поданный артефакт останавливает ноду; несовпадение identity или невоспроизводимая формула дают явный not_computable без ложного зелёного результата.",
+  "ui": {
+    "settings": [
+      {
+        "page": "Метрика",
+        "title": "Выбор ключевой метрики",
+        "components": [
+          {
+            "type": "form",
+            "label": "Модель и явное переопределение",
+            "config": {
+              "components": [
+                {
+                  "parameter": "model_id",
+                  "label": "Модель для сопоставления метрики",
+                  "uiComponent": "select",
+                  "type": "string",
+                  "allowedValues": [
+                    {
+                      "MiniMax M2.5 — AI Gateway": "minimax-m2.5"
+                    },
+                    {
+                      "GigaChat 3 Ultra — стандартный маршрут": "giga"
+                    },
+                    {
+                      "Qwen3 Coder Next — AI Gateway": "qwen3-coder-next"
+                    }
+                  ],
+                  "defaultValue": "minimax-m2.5"
+                },
+                {
+                  "parameter": "llm_model",
+                  "label": "Точная модель GigaChat (только для варианта GigaChat)",
+                  "uiComponent": "input",
+                  "type": "string",
+                  "defaultValue": "GigaChat-3-Ultra"
+                },
+                {
+                  "parameter": "main_metric",
+                  "label": "Колонка КМ вручную (обычно оставить пустой)",
+                  "uiComponent": "input",
+                  "type": "string",
+                  "defaultValue": ""
+                },
+                {
+                  "parameter": "model_version_id",
+                  "label": "ID версии решения для проверки отчёта",
+                  "uiComponent": "input",
+                  "type": "integer",
+                  "defaultValue": 0
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "result": {
+      "title": "Results",
+      "components": [
+        {
+          "type": "text",
+          "label": "Бизнес-метрика",
+          "config": {
+            "value": {
+              "data": "$.metric_selector_res.metric_name"
+            }
+          }
+        },
+        {
+          "type": "text",
+          "label": "Колонка расчёта",
+          "config": {
+            "value": {
+              "data": "$.metric_selector_res.score_column"
+            }
+          }
+        },
+        {
+          "type": "text",
+          "label": "Стратегия расчёта",
+          "config": {
+            "value": {
+              "data": "$.metric_selector_res.strategy"
+            }
+          }
+        },
+        {
+          "type": "text",
+          "label": "Статус контракта",
+          "config": {
+            "value": {
+              "data": "$.metric_selector_res.status"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "ports": [
+    {
+      "name": "df",
+      "label": "Эталонная корзина",
+      "in": true,
+      "type": "dataframe",
+      "shape": "shape_dataframe",
+      "description": "Датасет с первичной валидации",
+      "required": true,
+      "order": 1
+    },
+    {
+      "name": "docx_intstruction",
+      "label": "Инструкция по разметке",
+      "in": true,
+      "type": "default",
+      "shape": "shape_model",
+      "description": "Docx инструкция по разметке",
+      "required": false,
+      "order": 2,
+      "getPortAsLocalPath": true
+    },
+    {
+      "name": "doc_browser_result",
+      "label": "Поля отчёта о разработке",
+      "in": true,
+      "type": "default",
+      "shape": "shape_model",
+      "description": "Рекомендуется extracted_fields из g-aiva-doc-browser; также поддерживается прежняя карточка all_results.bp_card",
+      "required": false,
+      "order": 3
+    },
+    {
+      "name": "development_report_artifact",
+      "label": "Исходный отчёт о разработке",
+      "in": true,
+      "type": "default",
+      "shape": "shape_model",
+      "description": "development-report-connector.report_dict с bin/ext: используется для SHA-256 и проверки явно записанной identity, не для LLM-выбора метрики",
+      "required": false,
+      "order": 4
+    },
+    {
+      "name": "run_context",
+      "label": "Selection manifest прогона",
+      "in": true,
+      "type": "default",
+      "shape": "shape_model",
+      "description": "extract-profile.selection: ожидаемые agent_ci/distributive для проверки принадлежности отчёта",
+      "required": false,
+      "order": 6
+    },
+    {
+      "name": "validation_report_artifact",
+      "label": "Полный отчёт о валидации",
+      "in": true,
+      "type": "default",
+      "shape": "shape_model",
+      "description": "Полный DataArtifact validation report: raw/local path либо parquet bytes; selector сам распаковывает DOCX, извлекает значение и формулу КМ и подтверждает их пересчётом по корзине",
+      "required": false,
+      "order": 5,
+      "getPortAsLocalPath": true
+    },
+    {
+      "name": "monitoring_metric",
+      "label": "Monitoring metric",
+      "in": true,
+      "type": "default",
+      "shape": "shape_model",
+      "required": false,
+      "description": "Контракт laim-monitoring-metric.v2 от laim-baskets-adapter: метрика передаётся насквозь, LLM и валидационные артефакты не используются",
+      "order": 7
+    },
+    {
+      "name": "metric_selector_res",
+      "label": "MetricSpec ключевой метрики",
+      "in": false,
+      "type": "default",
+      "shape": "shape_model",
+      "description": "MetricSpec v2: семантика, source_columns/row_aggregation, score/weight, validation_evidence, provenance и явный status; без chain-of-thought",
+      "order": 7
+    },
+    {
+      "name": "metric_dataset",
+      "label": "Эталон с материализованной КМ",
+      "in": false,
+      "type": "dataframe",
+      "shape": "shape_dataframe",
+      "description": "Исходная канонизированная корзина; для вычисляемой КМ дополнена проверенной колонкой laim_key_metric",
+      "order": 8
+    }
+  ],
+  "script": {
+    "type": "python",
+    "baseImageKey": "py312-simple",
+    "deployType": "docker",
+    "runConfiguration": {
+      "sourceFiles": [
+        "main.py"
+      ],
+      "functionName": "main",
+      "functionParameters": [],
+      "output": {
+        "type": "json",
+        "output": []
+      }
+    }
+  },
+  "shape": "other"
+}
