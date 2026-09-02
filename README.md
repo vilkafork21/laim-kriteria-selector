@@ -43,6 +43,16 @@ validation report. Для готовой оценки выходной `metric_d
 а не измеренная КМ. Корзины с явной категориальной итоговой оценкой можно
 использовать для калибровки assessor; числовые тесты по ним остаются серыми.
 
+Если подключён порт `monitoring_metric` (контракт `laim-monitoring-metric.v2`
+от `laim-baskets-adapter`), селектор работает как identity-гейт: сверяет
+`basket_id` с `run_context.agent_ci`, строит MetricSpec из контракта без LLM
+(`strategy=monitoring_metric_passthrough`) и публикует контракт в порт
+`validated_monitoring_metric` без изменений. Контракт со статусом
+`not_computable` (например, `official_baseline_missing`) уходит дальше таким
+же отказом: `metric_spec.status=not_computable` с `reason_code` контракта,
+`score_column=null`; судить итоговую колонку без объявленной КМ селектор не
+пытается.
+
 Сводные строки Excel без пары `input_query`/`output_answer` не участвуют в
 выборе построчной шкалы и не становятся дополнительным классом. Среди
 доказанных шкальных колонок единственная явно итоговая колонка (`Итог`,

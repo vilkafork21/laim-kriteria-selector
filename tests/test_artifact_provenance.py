@@ -500,3 +500,32 @@ def test_validated_contract_is_published_even_on_manual_override_path():
 
     assert result["validated_monitoring_metric"] == contract
     assert result["metric_spec"]["main_metric"] == "quality_metric"
+
+
+def test_not_computable_contract_is_passed_through_as_not_computable():
+    # Адаптер честно отказал (КМ не объявлена в отчёте): селектор обязан
+    # передать отказ дальше, а не читать его как «контракт не распознан»
+    # и не превращать в resolved (аудит LAIM-0161, LAIM-0182).
+    frame = pd.DataFrame({"input_query": ["q1"], "output_answer": ["a1"], "main_metric": [1.0]})
+    contract = {
+        "contract_version": "laim-monitoring-metric.v2",
+        "umr_version": "laim-umr.v2",
+        "status": "not_computable",
+        "basket_id": "CI09000001",
+        "assessment_mode": "qa",
+        "reason": "Validation report не содержит официальный baseline",
+        "reason_code": "official_baseline_missing",
+    }
+
+    output = selector.main(
+        df=frame, monitoring_metric=contract,
+        run_context={"agent_ci": "CI09000001"},
+    )
+
+    spec = output["metric_spec"]
+    assert spec["status"] == "not_computable"
+    assert spec["reason_code"] == "official_baseline_missing"
+    assert spec["strategy"] == "monitoring_metric_passthrough"
+    assert spec["score_column"] is None
+    assert output["validated_monitoring_metric"] == contract
+    assert output["selector_inference"]["llm_called"] is False if "selector_inference" in output else True
