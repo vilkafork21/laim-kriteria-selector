@@ -18,5 +18,5 @@ jobs:
           pip install -r requirements.txt pytest "ruff==0.15.5"
       - name: Линт
         run: ruff check .
-      - name: Тесты ноды (включая контракт sourceFiles descriptor.json)
+      - name: Тесты ноды
         run: python -m pytest -q
