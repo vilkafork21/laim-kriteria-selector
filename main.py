@@ -2148,7 +2148,12 @@ def _load_monitoring_contract(value) -> dict | None:
     current = value
     for _ in range(_ARTIFACT_MAX_UNWRAP_DEPTH):
         if isinstance(current, dict):
-            if isinstance(current.get("scoring"), dict):
+            # Контракт not_computable не несёт scoring — это законный отказ
+            # адаптера, а не нераспознанный транспорт.
+            if isinstance(current.get("scoring"), dict) or (
+                current.get("contract_version") == "laim-monitoring-metric.v2"
+                and current.get("status")
+            ):
                 return current
             nested = next(
                 (
@@ -2207,8 +2212,33 @@ def _selector_from_monitoring_contract(metric, df) -> dict | None:
     дальше. Возврат None означает «контракт не передан/не распознан» и
     отправляет узел в прежний legacy-путь (LLM + отчёты).
     """
-    if not isinstance(metric, dict) or "scoring" not in metric:
+    if not isinstance(metric, dict):
         return None
+    if metric.get("contract_version") != "laim-monitoring-metric.v2" and "scoring" not in metric:
+        return None
+    status = str(metric.get("status") or "").strip().lower()
+    if status != "computed":
+        # Отказ адаптера передаётся как отказ: судить итоговую колонку без
+        # объявленной КМ нельзя, конвертер ниже всё равно остановится.
+        return {
+            "status": "not_computable",
+            "main_metric": None,
+            "other_metrics": [],
+            "metric_name": metric.get("name"),
+            "score_column": None,
+            "source_columns": [],
+            "marker_columns": [],
+            "row_aggregation": None,
+            "strategy": "monitoring_metric_passthrough",
+            "scoring_method": ((metric.get("scoring") or {}).get("method")),
+            "assessment_mode": metric.get("assessment_mode"),
+            "weight_column": None,
+            "reported_validation_value": None,
+            "resolution_source": "monitoring_metric_not_computable",
+            "reason_code": metric.get("reason_code"),
+            "reason": metric.get("reason") or f"контракт monitoring_metric со статусом {status!r}",
+            "warnings": [],
+        }
     scoring = metric.get("scoring") or {}
     sources = scoring.get("sources") or []
     columns, roles = [], {}
@@ -2218,7 +2248,6 @@ def _selector_from_monitoring_contract(metric, df) -> dict | None:
             columns.append(name)
             roles[name] = str(source.get("role", "")).strip()
     method = str(scoring.get("method") or "identity").strip().lower()
-    status = str(metric.get("status") or "").strip().lower()
     baseline = metric.get("baseline") or {}
 
     def _spec(main, others, source_path, reason=None):
@@ -2247,11 +2276,10 @@ def _selector_from_monitoring_contract(metric, df) -> dict | None:
         return spec
 
     judged_total = "main_metric" if "main_metric" in getattr(df, "columns", []) else None
-    if status != "computed" or method == "accuracy" or not columns:
+    if method == "accuracy" or not columns:
         # Контракт не даёт судимых критериев напрямую (accuracy требует
-        # prediction, которого нет в телеметрии; not_computable контракт не
-        # несёт подтверждённых критериев). Судим сразу итоговую оценку плана,
-        # чтобы не блокировать ассессор ниже по графу.
+        # prediction, которого нет в телеметрии). Судим сразу итоговую
+        # оценку плана, чтобы не блокировать ассессор ниже по графу.
         if judged_total is not None:
             return _spec(
                 judged_total, [], "monitoring_metric_judged_total",
