@@ -81,7 +81,7 @@ df = pd.read_csv("data/dataset.csv", sep=";")
 # Вызов модуля
 result = main(
     df=df,
-    docx_intstruction="./instruction/",
+    assessor_instruction="./instruction/",
     doc_browser_result={"bp_card_fields": {
         "evaluation_metric": "Accuracy", "threshold": "0.8"
     }},
@@ -121,10 +121,6 @@ criteria_selector.metric_dataset -> local/global/oos.real_asessor_df
 Конфигурация модели LLM. Содержит класс `ModelsConfig` для настройки параметров подключения к LLM. Поддерживает два контура:
 - **sigma** — прямое подключение к GigaChat
 - **sds** — подключение через AI Gateway
-
-### run.py
-
-Пример использования модуля с тестовыми данными.
 
 ## Конфигурация
 
