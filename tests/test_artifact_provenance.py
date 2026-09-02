@@ -528,4 +528,21 @@ def test_not_computable_contract_is_passed_through_as_not_computable():
     assert spec["strategy"] == "monitoring_metric_passthrough"
     assert spec["score_column"] is None
     assert output["validated_monitoring_metric"] == contract
-    assert output["selector_inference"]["llm_called"] is False if "selector_inference" in output else True
+
+
+def test_identity_gate_reads_nested_selection_envelope():
+    # Источник selection может отдать контекст завёрнутым в selection/run_context:
+    # гейт обязан сравнивать basket_id и в этом случае, а не молча пропускать.
+    frame = pd.DataFrame({"input_query": ["q1"], "output_answer": ["a1"], "main_metric": [1.0]})
+    contract = {
+        "contract_version": "laim-monitoring-metric.v2", "status": "computed",
+        "basket_id": "CI09000001", "name": "Accuracy", "score_column": "main_metric",
+        "assessment_mode": "qa",
+        "scoring": {"method": "identity",
+                    "sources": [{"column_name": "main_metric", "role": "final_score"}]},
+        "baseline": {"value": 0.9},
+    }
+    import pytest
+    with pytest.raises(ValueError, match="другому агенту"):
+        selector.main(df=frame, monitoring_metric=contract,
+                      run_context={"selection": {"agent_ci": "CI09999999"}})

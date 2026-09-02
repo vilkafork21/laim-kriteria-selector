@@ -432,6 +432,10 @@ def _declared_artifact_identity(development_report) -> dict:
 def _expected_run_identity(run_context) -> dict:
     if not isinstance(run_context, dict):
         return {}
+    # Источник selection может завернуть контекст в selection/run_context.
+    for key in ("selection", "run_context"):
+        if isinstance(run_context.get(key), dict) and "agent_ci" not in run_context:
+            run_context = run_context[key]
     expected = {}
     agent = run_context.get("agent_ci") or run_context.get("agent_id")
     if agent not in (None, "", "-"):
