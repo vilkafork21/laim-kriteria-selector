@@ -7,3 +7,4 @@ langchain-core
 langchain-community
 python-docx
 requests
+python-dotenv
