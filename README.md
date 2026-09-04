@@ -181,7 +181,7 @@ WARNING root: Ответ модели 'взвешенная accuracy' не со�
 | Несколько неразличимых числовых кандидатов | `not_computable`, `ambiguous_numeric_candidates` |
 | Только категориальная разметка, ответ модели не совпал | `not_computable`, `categorical_metric_unresolved` |
 | В корзине нет построчной разметки | `not_computable`, `no_markup_candidates`; LLM не вызывается |
-| Формула не воспроизводит ни одно значение отчёта о валидации | `not_computable`, `validation_metric_not_reproduced`, `validation_evidence.status = contradiction` |
+| Формула не воспроизводит ни одно значение отчёта о валидации | `resolved`, warning «формула MetricSpec не воспроизводит…», `validation_evidence.status = contradiction` — КМ мониторинга берётся из отчёта, пересчёт по корзине законно расходится с методикой отчёта |
 | Отчёт прочитан, но таблицы со столбцом «Значение» нет | `resolved`, `validation_evidence.status = no_metric_observation`, warning |
 | Формула `majority_vote` не материализуется; LLM не ответила валидным JSON | `identity` / решение по свойствам данных, warning |
 | Категориальная итоговая колонка | `resolved_categorical`, `strategy = categorical_label`; числовые тесты дают серый результат |
