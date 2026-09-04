@@ -2086,21 +2086,18 @@ def _finalize_metric_selection(
             )
             selected = _choose_observation(matches, result["score_column"])
             if selected is None:
+                # Расхождение пересчёта с отчётом — предупреждение, а не отказ:
+                # КМ мониторинга берётся из отчёта о валидации, а пересчёт по
+                # корзине законно расходится с методикой отчёта (взвешивание,
+                # округление); mismatch не отменяет план измерения.
                 reason = (
                     "формула MetricSpec не воспроизводит ни одного значения "
-                    "ключевой метрики из отчёта о валидации"
+                    "ключевой метрики из отчёта о валидации: пересчёт "
+                    f"{measured:.12g} против опубликованных значений"
                 )
                 validation.update({
                     "status": "contradiction",
                     "computed_value": measured,
-                })
-                result.update({
-                    "status": "not_computable",
-                    "main_metric": "target",
-                    "score_column": None,
-                    "strategy": None,
-                    "reason_code": "validation_metric_not_reproduced",
-                    "reason": reason,
                 })
                 result["warnings"].append(reason)
             else:

@@ -385,7 +385,7 @@ def test_validation_report_materializes_generic_majority_and_weight():
     assert output["metric_dataset"]["laim_key_metric"].tolist() == majority
 
 
-def test_validation_contradiction_is_nonfatal_not_computable():
+def test_validation_contradiction_is_warning_not_refusal():
     frame = pd.DataFrame({
         "input_query": ["q1", "q2", "q3", "q4"],
         "output_answer": ["a1", "a2", "a3", "a4"],
@@ -401,9 +401,12 @@ def test_validation_contradiction_is_nonfatal_not_computable():
         main_metric="target",
     )
     spec = output["metric_spec"]
-    assert spec["status"] == "not_computable"
-    assert spec["reason_code"] == "validation_metric_not_reproduced"
+    # Расхождение пересчёта с отчётом не отменяет план измерения: КМ берётся
+    # из отчёта о валидации, mismatch публикуется предупреждением.
+    assert spec["status"] == "resolved"
+    assert spec["score_column"] == "target"
     assert spec["validation_evidence"]["status"] == "contradiction"
+    assert any("не воспроизводит" in warning for warning in spec["warnings"])
     assert output["metric_dataset"].equals(frame)
 
 
